@@ -1,5 +1,366 @@
 <!DOCTYPE html>
-<html>
-  <head><meta charset="UTF-8"><title>OK</title></head>
-  <body><h1>INDEX OK</h1></body>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>최적 가격 전략 시뮬레이터</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Inter 폰트 사용 -->
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
+    <style>
+        body { font-family: 'Inter', sans-serif; background-color: #1f2937; color: #f9fafb; }
+        .card { background-color: #374151; border-radius: 12px; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -2px rgba(0, 0, 0, 0.1); }
+        .log-entry { padding: 8px 12px; margin-bottom: 4px; border-radius: 6px; }
+        .bg-green-600-light { background-color: #10b981; }
+        .bg-red-600-light { background-color: #ef4444; }
+    </style>
+</head>
+<body class="p-4 md:p-8 min-h-screen flex items-start justify-center">
+
+    <div id="app" class="w-full max-w-4xl space-y-6">
+        <h1 class="text-3xl font-bold text-center text-teal-400">💰 최적 가격 전략 시뮬레이터 💰</h1>
+        <p class="text-center text-gray-300">당신은 CEO입니다. 가격을 조정하며 총수입을 최대화하세요! (총 10회 시도 가능)</p>
+
+        <!-- 현재 시장 상황 요약 -->
+        <div id="current-status" class="card p-6 grid grid-cols-3 gap-4 text-center">
+            <div class="border-r border-gray-600">
+                <p class="text-sm font-semibold text-gray-400">현재 가격 (P)</p>
+                <p id="current-price" class="text-2xl font-bold text-indigo-400 mt-1">₩</p>
+            </div>
+            <div class="border-r border-gray-600">
+                <p class="text-sm font-semibold text-gray-400">판매량 (Q)</p>
+                <p id="current-quantity" class="text-2xl font-bold text-indigo-400 mt-1">개</p>
+            </div>
+            <div>
+                <p class="text-sm font-semibold text-gray-400">총수입 (TR = P × Q)</p>
+                <p id="current-revenue" class="text-2xl font-bold text-yellow-400 mt-1">₩</p>
+            </div>
+        </div>
+
+        <!-- 가격 결정 및 시뮬레이션 영역 -->
+        <div id="price-control" class="card p-6 space-y-4">
+            <h2 class="text-xl font-semibold text-gray-200">가격 결정 (남은 시도: <span id="attempts-left">10</span>회)</h2>
+            <div class="flex flex-col sm:flex-row gap-4">
+                <input type="number" id="new-price" placeholder="새로운 가격을 입력하세요 (예: 20)"
+                       class="w-full sm:w-2/3 p-3 text-lg rounded-lg bg-gray-600 text-white placeholder-gray-400 focus:ring-teal-500 focus:border-teal-500 border-transparent transition duration-150"
+                       min="1" max="100">
+                <button id="set-price-btn"
+                        class="w-full sm:w-1/3 p-3 text-lg font-bold rounded-lg bg-teal-500 hover:bg-teal-600 transition duration-150 disabled:opacity-50 disabled:cursor-not-allowed">
+                    가격 결정 및 시뮬레이션
+                </button>
+            </div>
+            <p id="message-box" class="text-center text-lg font-medium h-6"></p>
+        </div>
+
+        <!-- 시뮬레이션 기록 (로그) -->
+        <div class="card p-6">
+            <h2 class="text-xl font-semibold text-gray-200 mb-3">시뮬레이션 기록 및 분석</h2>
+            <div id="simulation-log" class="space-y-2 max-h-60 overflow-y-auto">
+                <!-- Log entries will be inserted here -->
+                <p class="text-gray-400 text-center">시뮬레이션을 시작해주세요.</p>
+            </div>
+        </div>
+
+        <!-- 결과 모달 (숨김) -->
+        <div id="result-modal" class="hidden fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center p-4 z-50">
+            <div class="card p-8 w-full max-w-md text-center space-y-4">
+                <h3 id="result-title" class="text-3xl font-bold text-teal-400">게임 종료!</h3>
+                <p id="result-message" class="text-lg text-gray-200"></p>
+                <p id="result-optimal" class="text-lg font-semibold text-yellow-300"></p>
+                <button onclick="resetGame()" class="p-3 w-full bg-indigo-500 rounded-lg font-bold hover:bg-indigo-600 transition">
+                    새 게임 시작
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // 전역 상수 및 변수
+        const MAX_ATTEMPTS = 10;
+        // ⭐ 수정: 최적 가격으로 인정되는 허용 오차 범위 (0으로 설정하여 정확한 값만 인정)
+        const OPTIMAL_THRESHOLD = 0; 
+        
+        let attempts = MAX_ATTEMPTS;
+
+        // 숨겨진 수요 함수 (Q = a - bP)
+        // ⭐ 수정: 새로운 수요 함수 Q = 800 - 5P (최적 가격 P=80)
+        const DEMAND_A = 800;
+        const DEMAND_B = 5;
+        const OPTIMAL_PRICE = DEMAND_A / (2 * DEMAND_B); // 800 / 10 = 80
+
+        // 상태 변수
+        // ⭐ 수정: 새로운 시작 상태 P=40, Q=600, TR=24000
+        let previousPrice = 40;
+        let previousQuantity = 600;
+        let previousRevenue = 24000;
+        let isGameOver = false;
+
+        // DOM 요소
+        const currentPriceEl = document.getElementById('current-price');
+        const currentQuantityEl = document.getElementById('current-quantity');
+        const currentRevenueEl = document.getElementById('current-revenue');
+        const attemptsLeftEl = document.getElementById('attempts-left');
+        const newPriceInput = document.getElementById('new-price');
+        const setPriceBtn = document.getElementById('set-price-btn');
+        const simulationLogEl = document.getElementById('simulation-log');
+        const messageBox = document.getElementById('message-box');
+        const resultModal = document.getElementById('result-modal');
+        const resultTitle = document.getElementById('result-title');
+        const resultMessage = document.getElementById('result-message');
+        const resultOptimal = document.getElementById('result-optimal');
+
+        // ------------------
+        // 1. 핵심 계산 로직
+        // ------------------
+
+        /**
+         * 주어진 가격에 대한 수요량을 계산합니다.
+         * @param {number} P 가격
+         * @returns {number} 수요량
+         */
+        function calculateQuantity(P) {
+            let Q = DEMAND_A - DEMAND_B * P;
+            return Math.max(0, Q); // 수요량은 0 미만이 될 수 없음
+        }
+
+        /**
+         * 총수입을 계산합니다.
+         * @param {number} P 가격
+         * @param {number} Q 수요량
+         * @returns {number} 총수입
+         */
+        function calculateRevenue(P, Q) {
+            return P * Q;
+        }
+
+        /**
+         * 호 탄력성 (Arc Elasticity)을 계산합니다.
+         * P1, Q1에서 P2, Q2로 변할 때의 탄력성
+         */
+        function calculateArcElasticity(P1, Q1, P2, Q2) {
+            const deltaQ = Q2 - Q1;
+            const deltaP = P2 - P1;
+            const avgQ = (Q1 + Q2) / 2;
+            const avgP = (P1 + P2) / 2;
+
+            if (avgP === 0 || avgQ === 0 || deltaP === 0) return 999; // 가격 변화가 없거나 0으로 나누는 경우 예외 처리
+            
+            const elasticity = Math.abs((deltaQ / avgQ) / (deltaP / avgP));
+            return elasticity;
+        }
+
+        // ------------------
+        // 2. UI 업데이트
+        // ------------------
+
+        function updateStatusDisplay() {
+            currentPriceEl.textContent = `₩${previousPrice.toLocaleString()}`;
+            currentQuantityEl.textContent = `${previousQuantity.toLocaleString()}개`;
+            currentRevenueEl.textContent = `₩${previousRevenue.toLocaleString()}`;
+            attemptsLeftEl.textContent = attempts;
+            newPriceInput.value = ''; // 입력창 초기화
+        }
+
+        function addLogEntry(P_new, Q_new, TR_new) {
+            const TR_diff = TR_new - previousRevenue;
+            let logClass = 'bg-gray-700';
+            let revenueTrend = '유지';
+            let trendIcon = '↔️';
+            let elasticityFeedback = '';
+
+            if (TR_diff > 0) {
+                logClass = 'bg-green-700/50 border-l-4 border-green-400';
+                revenueTrend = '증가';
+                trendIcon = '⬆️';
+            } else if (TR_diff < 0) {
+                logClass = 'bg-red-700/50 border-l-4 border-red-400';
+                revenueTrend = '감소';
+                trendIcon = '⬇️';
+            } else {
+                logClass = 'bg-blue-700/50 border-l-4 border-blue-400';
+            }
+
+            // 탄력성 개념 피드백 (간단한 고교 수준 해석)
+            const priceChange = P_new - previousPrice;
+            const elasticity = calculateArcElasticity(previousPrice, previousQuantity, P_new, Q_new);
+            
+            let ed_value = elasticity.toFixed(2);
+            let ed_type = "측정 불가";
+
+            if (priceChange !== 0 && previousQuantity > 0 && Q_new > 0) {
+                 if (ed_value > 1.05) { // 약간의 여유를 줌 (1.05)
+                    ed_type = "탄력적 (> 1)";
+                } else if (ed_value < 0.95) { // 약간의 여유를 줌 (0.95)
+                    ed_type = "비탄력적 (< 1)";
+                } else {
+                    ed_type = "단위 탄력적 (≈ 1)";
+                }
+            } else if (previousQuantity === 0 && Q_new === 0 && priceChange !== 0) {
+                ed_type = "완전 비탄력적 (0)";
+                ed_value = '0';
+            }
+            
+            // 피드백 메시지
+            if (TR_diff > 0) {
+                // 가격 상승(P_new > previousPrice) && 비탄력적(ed_value < 1) -> TR 증가 (옳은 전략)
+                // 가격 하락(P_new < previousPrice) && 탄력적(ed_value > 1) -> TR 증가 (옳은 전략)
+                if ((priceChange > 0 && ed_value < 1) || (priceChange < 0 && ed_value > 1)) {
+                    elasticityFeedback = `<span class="text-green-300">👍 이 전략은 탄력성 원리에 맞습니다!</span>`;
+                }
+            } else if (TR_diff < 0) {
+                // 가격 상승(P_new > previousPrice) && 탄력적(ed_value > 1) -> TR 감소 (잘못된 전략)
+                // 가격 하락(P_new < previousPrice) && 비탄력적(ed_value < 1) -> TR 감소 (잘못된 전략)
+                 if ((priceChange > 0 && ed_value > 1) || (priceChange < 0 && ed_value < 1)) {
+                    elasticityFeedback = `<span class="text-red-300">👎 이 전략은 탄력성 원리에 역행합니다!</span>`;
+                }
+            }
+
+
+            const logHtml = `
+                <div class="${logClass} text-sm">
+                    <p class="font-bold">시도 ${MAX_ATTEMPTS - attempts} (${trendIcon} 총수입 ${revenueTrend} ₩${Math.abs(TR_diff).toLocaleString()})</p>
+                    <ul class="list-disc ml-4 text-gray-300">
+                        <li>가격 변화: ₩${previousPrice} → ₩${P_new}</li>
+                        <li>수요량 변화: ${previousQuantity}개 → ${Q_new}개</li>
+                        <li>계산된 탄력성 (절댓값): |${ed_value}| (${ed_type})</li>
+                        <li>${elasticityFeedback}</li>
+                    </ul>
+                </div>
+            `;
+            
+            // 새로운 로그를 맨 위에 추가
+            simulationLogEl.insertAdjacentHTML('afterbegin', logHtml);
+            // 초기 안내 메시지 제거
+            if (simulationLogEl.querySelector('.text-gray-400')) {
+                simulationLogEl.removeChild(simulationLogEl.querySelector('.text-gray-400'));
+            }
+        }
+
+        function showResult(title, message, optimalInfo) {
+            resultTitle.textContent = title;
+            resultMessage.innerHTML = message;
+            resultOptimal.textContent = optimalInfo;
+            resultModal.classList.remove('hidden');
+            setPriceBtn.disabled = true;
+            isGameOver = true;
+        }
+
+        // ------------------
+        // 3. 게임 로직
+        // ------------------
+
+        function handleSetPrice() {
+            if (isGameOver) return;
+
+            const P_new = parseInt(newPriceInput.value);
+            const threshold = OPTIMAL_THRESHOLD; // 최적 가격과의 차이 허용 범위
+
+            if (isNaN(P_new) || P_new <= 0) {
+                messageBox.textContent = '유효한 가격을 입력해주세요!';
+                messageBox.className = 'text-center text-lg font-medium h-6 text-red-400';
+                return;
+            }
+            if (P_new === previousPrice) {
+                messageBox.textContent = '이전과 다른 가격을 입력해야 합니다!';
+                messageBox.className = 'text-center text-lg font-medium h-6 text-red-400';
+                return;
+            }
+            
+            messageBox.textContent = ''; // 메시지 초기화
+            messageBox.className = 'text-center text-lg font-medium h-6 text-white';
+
+            const Q_new = calculateQuantity(P_new);
+            const TR_new = calculateRevenue(P_new, Q_new);
+            
+            // 로그 기록
+            addLogEntry(P_new, Q_new, TR_new);
+
+            // 상태 업데이트
+            attempts--;
+            previousPrice = P_new;
+            previousQuantity = Q_new;
+            previousRevenue = TR_new;
+
+            updateStatusDisplay();
+            
+            // ⭐ 새로운 기능: 최적 가격을 찾았는지 즉시 확인하고 게임 종료
+            // OPTIMAL_THRESHOLD가 0이므로, P_new가 OPTIMAL_PRICE와 정확히 일치해야 합니다.
+            if (Math.abs(P_new - OPTIMAL_PRICE) <= threshold) {
+                checkWinCondition(P_new, true); // 즉시 종료 플래그 true
+                return; // 함수 종료
+            }
+
+            // 남은 시도가 없을 경우 게임 종료
+            if (attempts <= 0) {
+                checkWinCondition(P_new, false); // 즉시 종료가 아님
+            }
+        }
+
+        function checkWinCondition(finalPrice, instantWin = false) {
+            const threshold = OPTIMAL_THRESHOLD; 
+            // ⭐ 수정: 최대 총수입 ₩32,000
+            const maxRevenue = 32000;
+            
+            let title = '아쉽습니다!';
+            let message = '주어진 횟수 안에 총수입을 최대화하는 최적 가격을 찾지 못했어요.';
+            let optimalInfo = `최대 총수입은 ₩${maxRevenue.toLocaleString()}일 때, 최적 가격은 ₩${OPTIMAL_PRICE}입니다.`;
+
+            // 총수입 극대화 지점에 도달했는지 확인 (P=80)
+            if (Math.abs(finalPrice - OPTIMAL_PRICE) <= threshold) {
+                let attemptsUsed = MAX_ATTEMPTS - attempts;
+                title = '🏆 성공! 최적 가격 발견! 🏆';
+                message = `단 ${attemptsUsed}회 만에 총수입 ₩${previousRevenue.toLocaleString()} (최대치에 근접)를 달성하는 최적의 가격을 찾았습니다!`;
+            } else if (previousRevenue === maxRevenue) {
+                let attemptsUsed = MAX_ATTEMPTS - attempts;
+                title = '🎉 완벽 성공! 총수입 최대화! 🎉';
+                message = `단 ${attemptsUsed}회 만에 총수입을 ₩${maxRevenue.toLocaleString()}로 극대화하는 가격을 정확히 찾았습니다.`;
+            } else {
+                 message += ` 최종 총수입은 ₩${previousRevenue.toLocaleString()}입니다.`;
+                 if(instantWin) { // 오류로 인해 instantWin이 true인데 실패한 경우
+                    title = '아쉽습니다!';
+                    message = '최적 가격 근처로 갔지만, 총수입을 극대화하지는 못했습니다.';
+                 }
+            }
+            
+            // 학습 피드백 추가
+            message += `<br><br><strong>[핵심 원리]</strong> 총수입을 최대화하는 지점은 수요의 가격 탄력성(|Ed|)이 1인 지점(단위 탄력적)입니다. 이 지점을 찾기 위해 가격 조정 시 총수입의 변화를 관찰해야 합니다.`;
+
+            showResult(title, message, optimalInfo);
+        }
+        
+        function resetGame() {
+            // ⭐ 수정: 새로운 초기 상태로 복원
+            attempts = MAX_ATTEMPTS;
+            previousPrice = 40;
+            previousQuantity = 600;
+            previousRevenue = 24000;
+            isGameOver = false;
+
+            // UI 초기화
+            simulationLogEl.innerHTML = '<p class="text-gray-400 text-center">시뮬레이션을 시작해주세요.</p>';
+            resultModal.classList.add('hidden');
+            setPriceBtn.disabled = false;
+            messageBox.textContent = '';
+            messageBox.className = 'text-center text-lg font-medium h-6 text-white';
+            
+            updateStatusDisplay();
+        }
+
+        // ------------------
+        // 4. 이벤트 리스너 및 초기화
+        // ------------------
+
+        setPriceBtn.addEventListener('click', handleSetPrice);
+        newPriceInput.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter') {
+                handleSetPrice();
+            }
+        });
+
+        // 앱 초기화
+        window.onload = function() {
+            resetGame(); // 초기 상태 설정 및 디스플레이 업데이트
+        }
+    </script>
+</body>
 </html>
